@@ -1,61 +1,66 @@
 import streamlit as st
 import pandas as pd
 from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
 import time
 from io import BytesIO
 
-# إعداد واجهة التطبيق
-st.set_page_config(page_title="مستخرج إحداثيات مدارس أسوان 2026", layout="wide")
-st.title("📍 مستخرج إحداثيات المدارس (إحصاء 2026)")
-st.subheader("دكتور / ربيع أبو يوسف - مديرية التربية والتعليم بأسوان")
+# إعداد الصفحة لتناسب واجهة مديرية التربية والتعليم بأسوان
+st.set_page_config(page_title="منظومة إحداثيات مدارس أسوان", page_icon="📍")
 
-# رفع الملف
-uploaded_file = st.file_uploader("قم برفع ملف (احصاء 26.txt)", type=['txt'])
+st.title("📍 نظام استخراج الإحداثيات الجغرافية")
+st.markdown("### خاص ببيانات إحصاء مدارس محافظة أسوان 2026")
+st.info("دكتور / ربيع أبو يوسف - إدارة التحول الرقمي")
 
-if uploaded_file is not None:
-    # قراءة الأسماء من الملف المرفوع
-    content = uploaded_file.read().decode("utf-8")
-    schools_list = [line.strip() for line in content.split('\n') if line.strip()]
+# رفع ملف الإحصاء (txt)
+uploaded_file = st.file_uploader("اختر ملف (احصاء 26.txt)", type=['txt'])
+
+if uploaded_file:
+    # قراءة وتنظيف قائمة المدارس
+    raw_data = uploaded_file.read().decode("utf-8")
+    schools = [s.strip() for s in raw_data.split('\n') if s.strip()]
     
-    if st.button("بدء استخراج الإحداثيات (Excel)"):
-        geolocator = Nominatim(user_agent="aswan_schools_app_2026")
+    st.write(f"📊 تم اكتشاف عدد ({len(schools)}) مدرسة في الملف.")
+    
+    if st.button("🚀 بدء المعالجة وإنشاء ملف Excel"):
+        # إعداد المحرك مع مهلة زمنية أطول لتجنب الأخطاء
+        geolocator = Nominatim(user_agent="aswan_edu_mapper_2026", timeout=10)
+        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
+        
         results = []
         progress_bar = st.progress(0)
-        status_text = st.empty()
-
-        for i, school in enumerate(schools_list):
-            status_text.text(f"جاري معالجة: {school} ({i+1}/{len(schools_list)})")
+        
+        for idx, school in enumerate(schools):
+            # البحث عن المدرسة في نطاق أسوان تحديداً
             try:
-                # البحث في نطاق أسوان لضمان الدقة
-                location = geolocator.geocode(f"{school}, Aswan, Egypt")
+                location = geocode(f"{school}, Aswan, Egypt")
                 if location:
                     results.append({
-                        'اسم المدرسة': school,
-                        'العنوان': location.address,
-                        'Latitude': location.latitude,
-                        'Longitude': location.longitude
+                        "اسم المدرسة": school,
+                        "العنوان": location.address,
+                        "Latitude": location.latitude,
+                        "Longitude": location.longitude
                     })
                 else:
-                    results.append({'اسم المدرسة': school, 'العنوان': 'غير محدد', 'Latitude': None, 'Longitude': None})
-                
-                time.sleep(1.1) # لتجنب حظر السيرفر
+                    results.append({"اسم المدرسة": school, "العنوان": "غير موجود بالخرائط", "Latitude": None, "Longitude": None})
             except:
-                results.append({'اسم المدرسة': school, 'العنوان': 'خطأ في الاتصال', 'Latitude': None, 'Longitude': None})
+                results.append({"اسم المدرسة": school, "العنوان": "خطأ تقني", "Latitude": None, "Longitude": None})
             
-            progress_bar.progress((i + 1) / len(schools_list))
-
-        # تحويل النتائج إلى DataFrame
+            # تحديث شريط التقدم
+            progress_bar.progress((idx + 1) / len(schools))
+        
+        # عرض النتائج في جدول
         df = pd.DataFrame(results)
-        st.success("✅ تمت المعالجة بنجاح!")
+        st.success("✅ اكتملت العملية!")
         st.dataframe(df)
 
-        # تحويل DataFrame إلى ملف Excel في الذاكرة للتحميل
+        # تحويل البيانات إلى Excel للتحميل الفوري
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Sheet1')
+            df.to_excel(writer, index=False, sheet_name='المدارس')
         
         st.download_button(
-            label="📥 تحميل ملف Excel الناتج",
+            label="📥 تحميل ملف Excel الجاهز",
             data=output.getvalue(),
             file_name="احداثيات_مدارس_اسوان_2026.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
